@@ -12,3 +12,56 @@ The table modifications inside this database generate:
    1. The Target (High Risk): 10 distinct crash incidents inside a residential 25 mph zone. Because of the lower traffic pool, the mathematical exposure rate resolves to 8.33. This value sits above the 5.0 limit and will flag row items as red.
    2. The Control (Low Risk): 3 crash incidents logged across high-speed 65 mph highway loops. Spread over a major traffic baseline, its exposure index falls to a safe 0.32 and avoids any color overlay changes.
 
+
+# Extend the SQLite schema to track vehicle mechanical failures or autonomous levels
+
+To extend your SQLite schema to track vehicle mechanical failures and autonomous levels, we need to alter our data modeling strategy.
+In our original setup, mechanical failures and autonomous levels were simple text and integer fields stuffed directly inside the vehicles table. While that works for small examples, real-world data systems require a normalized schema to ensure clean reporting, handle multi-failure scenarios, and avoid raw data duplication.
+
+------------------------------
+## The New Relational Architecture
+To properly track these advanced metrics, the SQLite schema should be expanded to include two new lookup tables and one junction table:
+
+   1. dim_autonomy_levels: A dimension lookup table holding the official structural definitions for the SAE (Society of Automotive Engineers) Autonomous Driving Levels (Levels 0 through 5). [1] 
+   2. dim_mechanical_failures: A standardized lookup catalog of vehicle mechanical breakdowns (e.g., Brake Failure, Tire Blowout, Steering Loss).
+   3. vehicle_failures_bridge: A junction bridge table mapping vehicles to their faults. This handles multi-failure accidents (e.g., if a truck suffers a brake failure and a subsequent steering loss during a single crash sequence).
+
+```
+   [ crashes ]
+        │ (1:N)
+        ▼
+   [ vehicles ] ──(N:1)──► [ dim_autonomy_levels ]
+        │ (1:N)
+        ▼
+[ vehicle_failures_bridge ] ◄──(N:1)── [ dim_mechanical_failures ]
+```
+
+------------------------------
+## Executable Python Script (extend_schema.py)
+Here is a complete script that will safely recreate your database (transportation_accidents.db), build out the new normalized tables, establish foreign key constraints, and seed it with realistic autonomous truck and passenger transit vehicle crash sequences.
+
+
+## Verification Query Example
+To extract meaningful analysis from this extended schema, your reporting pipelines can now run complex relational joins. If you connect to this database file using Python or a SQLite GUI viewer, running this sample SQL query will extract a clean log showing precisely which autonomous hardware levels are experiencing failures:
+
+```sql
+SELECT 
+    v.vehicle_id,
+    v.vehicle_type,
+    a.sae_name as autonomy_classification,
+    f.failure_category,
+    f.description as flaw_detail,
+    c.weather_conditionFROM vehicles vJOIN dim_autonomy_levels a ON v.autonomous_level = a.autonomy_levelJOIN vehicle_failures_bridge b ON v.vehicle_id = b.vehicle_idJOIN dim_mechanical_failures f ON b.failure_code = f.failure_codeJOIN crashes c ON v.crash_id = c.crash_id;
+```
+
+What this outputs from the seeded data:
+
+* It exposes VEH_101 (Commercial Truck) as running at Level 4 (High Driving Automation) while simultaneously registering two separate errors (Sensor Blindness and Braking System Failure) during a single accident tracking sequence under heavy rain. [2] 
+
+------------------------------
+## Step-by-Step Running Guide
+
+Run the script inside your terminal using your environment manager to generate the extended database file:
+   
+   uv run extend_schema.py
+   
