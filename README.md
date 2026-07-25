@@ -64,4 +64,34 @@ What this outputs from the seeded data:
 Run the script inside your terminal using your environment manager to generate the extended database file:
    
    uv run extend_schema.py
+
+# Add a people table to this schema to track injuries across autonomous vehicle types
+
+Here is your updated schema setup script. It expands the database by adding a normalized people table linked directly to the crashes and vehicles architecture. It tracks individual occupants, system roles (e.g., Driver, Pedestrian), age, and their corresponding injury severity code on the standardized KABCO scale.
+This script replaces the database file (transportation_accidents.db) with a clean, fully normalized schema and injects realistic test cases—including injuries occurring in standard vehicles versus those inside autonomous vehicle sequences.
+## Extended Database Initialization Script (extend_schema.py)
+
+
+## Try Analytical Cross-Tabulations
+With this updated structure in place, you can execute deep data inquiries matching automated system classes with direct health outcomes. Running the sample analytical query below directly returns the counts of fatalities and injuries grouped by the SAE Autonomy Classification Level:
+
+```sql
+SELECT 
+    a.autonomy_level,
+    a.sae_name as autonomy_type,
+    p.injury_severity_kabco as severity_code,
+    COUNT(p.person_id) as headcount
+FROM people p
+-- LEFT JOIN handles non-motorist individuals who aren't inside a car (e.g. Pedestrians)
+LEFT JOIN vehicles v ON p.vehicle_id = v.vehicle_id
+LEFT JOIN dim_autonomy_levels a ON v.autonomous_level = a.autonomy_level
+GROUP BY v.autonomous_level, p.injury_severity_kabco
+ORDER BY v.autonomous_level ASC, headcount DESC;
+```
+
+## Next Steps to Finalize Your System
+   
+   uv run extend_schema.py
+   
+
    

@@ -12,18 +12,18 @@ import os
 DB_PATH = "transportation_accidents.db"
 
 def build_extended_schema():
-    # If database already exists, remove it to build a clean relational structure
+    # Clear the old database instance if it exists to establish fresh relations
     if os.path.exists(DB_PATH):
         os.remove(DB_PATH)
         
-    print(f"--- 1. Creating Database & Schema Structure at '{DB_PATH}' ---")
+    print(f"--- 1. Initializing Database Structure at '{DB_PATH}' ---")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     
-    # Enable explicit runtime foreign key constraints validation in SQLite
+    # Enforce strict cascading foreign key constraints dynamically inside SQLite
     cursor.execute("PRAGMA foreign_keys = ON;")
     
-    # Create Table: Core Crashes Element
+    # Table A: Core Crashes Element 
     cursor.execute("""
         CREATE TABLE crashes (
             crash_id TEXT PRIMARY KEY,
@@ -34,7 +34,7 @@ def build_extended_schema():
         );
     """)
     
-    # Create Table: Autonomous Level Dimensions Catalog (SAE Standards J3016)
+    # Table B: Autonomous driving scale lookup dictionary 
     cursor.execute("""
         CREATE TABLE dim_autonomy_levels (
             autonomy_level INTEGER PRIMARY KEY CHECK(autonomy_level BETWEEN 0 AND 5),
@@ -43,7 +43,7 @@ def build_extended_schema():
         );
     """)
     
-    # Create Table: Standard Mechanical Failure Classification Category Catalog
+    # Table C: Standard mechanical failure taxonomy definitions
     cursor.execute("""
         CREATE TABLE dim_mechanical_failures (
             failure_code TEXT PRIMARY KEY,
@@ -52,7 +52,7 @@ def build_extended_schema():
         );
     """)
 
-    # Create Table: Extended Vehicles Track Layer
+    # Table D: System Vehicles (normalized to point to the autonomy level keys)
     cursor.execute("""
         CREATE TABLE vehicles (
             vehicle_id TEXT PRIMARY KEY,
@@ -64,7 +64,7 @@ def build_extended_schema():
         );
     """)
     
-    # Create Junction Table: Many-to-Many Bridge tracking multiple vehicle failures per sequence
+    # Table E: Junction table tracking complex multi-failure accidents
     cursor.execute("""
         CREATE TABLE vehicle_failures_bridge (
             vehicle_id TEXT NOT NULL,
@@ -75,35 +75,47 @@ def build_extended_schema():
         );
     """)
 
+    # Table F: NEW - Normalized People and Injury tracking table
+    cursor.execute("""
+        CREATE TABLE people (
+            person_id TEXT PRIMARY KEY,
+            crash_id TEXT NOT NULL,
+            vehicle_id TEXT, -- Nullable to support non-motorists (e.g. pedestrians, cyclists)
+            role TEXT CHECK(role IN ('Driver', 'Occupant', 'Pedestrian', 'Cyclist')),
+            age INTEGER,
+            gender TEXT,
+            injury_severity_kabco TEXT CHECK(injury_severity_kabco IN ('K', 'A', 'B', 'C', 'O')),
+            FOREIGN KEY (crash_id) REFERENCES crashes(crash_id) ON DELETE CASCADE,
+            FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE SET NULL
+        );
+    """)
+
     # =====================================================================
-    # SEED DATA INJECTION
+    # SEED DATA GENERATION & INSERTION
     # =====================================================================
-    print("--- 2. Seeding Lookup Dimension Tables ---")
+    print("--- 2. Seeding Dimensions ---")
     
-    # Seed Autonomy Categories
     autonomy_data = [
-        (0, "No Driving Automation", "Manual driver controls all steering, braking, and throttle work."),
-        (1, "Driver Assistance", "Vehicle features single automated system (e.g., adaptive cruise controls)."),
-        (2, "Partial Driving Automation", "Vehicle controls steering and speed simultaneously (e.g., lane centering)."),
-        (3, "Conditional Driving Automation", "System monitors driving environment, pilot must intervene on demand."),
-        (4, "High Driving Automation", "Vehicle drives completely unaided within geofenced parameters."),
-        (5, "Full Driving Automation", "Complete automation across all environment layers, steering wheel optional.")
+        (0, "No Driving Automation", "Manual driver controls all operations."),
+        (1, "Driver Assistance", "Single automated system helper present."),
+        (2, "Partial Driving Automation", "Automated steering and acceleration execution."),
+        (3, "Conditional Driving Automation", "System drives but operator handles emergency calls."),
+        (4, "High Driving Automation", "Vehicle drives unaided inside geofenced areas."),
+        (5, "Full Driving Automation", "Complete vehicle independence under all constraints.")
     ]
     cursor.executemany("INSERT INTO dim_autonomy_levels VALUES (?, ?, ?);", autonomy_data)
     
-    # Seed Mechanical Failures Category Records
     failure_data = [
-        ("BRK_FAIL", "Braking System", "Complete hydraulic pressure loss or brake pad lockup."),
-        ("TYR_BLOW", "Suspension & Tires", "Sudden catastrophic tire sidewall blowout event."),
-        ("STR_LOSS", "Steering System", "Mechanical linkage failure or power steering fluid leak drop."),
-        ("SEN_BLND", "AV Sensors", "Autonomous camera obstruction or LiDAR feedback error freeze."),
-        ("SFT_CRSH", "AV Software", "System compute lockup forcing automated fallback procedure failure.")
+        ("BRK_FAIL", "Braking System", "Complete hydraulic fluid loss or caliper seizure."),
+        ("TYR_BLOW", "Suspension & Tires", "Sudden catastrophic structural tire failure."),
+        ("STR_LOSS", "Steering System", "Mechanical linkage breakage or sudden power loss."),
+        ("SEN_BLND", "AV Sensors", "Camera obstruction or LiDAR system disconnect."),
+        ("SFT_CRSH", "AV Software", "Core operating module freeze or fatal error.")
     ]
     cursor.executemany("INSERT INTO dim_mechanical_failures VALUES (?, ?, ?);", failure_data)
     
-    print("--- 3. Injecting Sample Accident & Autonomous Vehicle Crash Rows ---")
+    print("--- 3. Seeding Incidents, Fleet Units, and Failure Bridges ---")
     
-    # Seed crashes (Crash records that align with our speed map indexes)
     crashes = [
         ("CRASH_001", "2026-03-12 08:32:00", "Rain", 65, "Interstate"),
         ("CRASH_002", "2026-05-19 14:15:00", "Clear", 35, "Urban Arterial"),
@@ -111,27 +123,44 @@ def build_extended_schema():
     ]
     cursor.executemany("INSERT INTO crashes VALUES (?, ?, ?, ?, ?);", crashes)
     
-    # Seed vehicles (Mixing baseline Level 0 cars with Level 2 and Level 4 Autonomous Trucks)
     vehicles = [
-        ("VEH_101", "CRASH_001", "Commercial Truck", 4), # Level 4 Autonomy freight unit
-        ("VEH_102", "CRASH_001", "Passenger Car", 0),    # Baseline vehicle hit by truck
-        ("VEH_201", "CRASH_002", "Transit Bus", 2),       # Level 2 highway commuter transport 
-        ("VEH_301", "CRASH_003", "Passenger Car", 1)     # Level 1 sedan
+        ("VEH_101", "CRASH_001", "Commercial Truck", 4), # Level 4 Autonomous Freight Truck
+        ("VEH_102", "CRASH_001", "Passenger Car", 0),    # Standard vehicle hit by truck
+        ("VEH_201", "CRASH_002", "Transit Bus", 2),       # Level 2 Autonomy Bus
+        ("VEH_301", "CRASH_003", "Passenger Car", 0)     # Standard vehicle
     ]
     cursor.executemany("INSERT INTO vehicles VALUES (?, ?, ?, ?);", vehicles)
     
-    # Seed complex failures mapped to our vehicles bridge
     failures_bridge = [
-        ("VEH_101", "SEN_BLND"), # Level 4 Truck suffered sensor blindness in rain...
-        ("VEH_101", "BRK_FAIL"), # ...which triggered an automated hard-braking pad lockup (Multi-failure)
-        ("VEH_201", "STR_LOSS"), # Bus suffered structural steering link separation
-        ("VEH_301", "TYR_BLOW")  # Car had a high-speed tire tread burst
+        ("VEH_101", "SEN_BLND"),
+        ("VEH_101", "BRK_FAIL"),
+        ("VEH_201", "STR_LOSS"),
+        ("VEH_301", "TYR_BLOW")
     ]
     cursor.executemany("INSERT INTO vehicle_failures_bridge VALUES (?, ?);", failures_bridge)
     
+    print("--- 4. Seeding Injury Matrix Metrics ---")
+    
+    # Seeding people across our vehicle infrastructure types
+    people_data = [
+        # CRASH 001: Level 4 Autonomous Freight truck collides with standard vehicle
+        ("PER_001", "CRASH_001", "VEH_101", "Driver", 42, "M", "O"),      # Backup operator in truck uninjured
+        ("PER_002", "CRASH_001", "VEH_102", "Driver", 28, "F", "A"),      # Manual driver severely injured
+        ("PER_003", "CRASH_001", "VEH_102", "Occupant", 6, "M", "B"),    # Passenger child sustained minor injuries
+        
+        # CRASH 002: Level 2 Transit bus sequence involving a pedestrian
+        ("PER_004", "CRASH_002", "VEH_201", "Driver", 55, "M", "O"),      # Bus driver safe
+        ("PER_005", "CRASH_002", "VEH_201", "Occupant", 19, "F", "C"),    # Bus commuter reported minor pain
+        ("PER_006", "CRASH_002", None, "Pedestrian", 34, "F", "K"),       # Pedestrian struck fatally due to mechanical steering loss
+        
+        # CRASH 003: High-speed passenger car blowout
+        ("PER_007", "CRASH_003", "VEH_301", "Driver", 68, "M", "B")       # Driver sustained bruises
+    ]
+    cursor.executemany("INSERT INTO people VALUES (?, ?, ?, ?, ?, ?, ?);", people_data)
+    
     conn.commit()
     conn.close()
-    print("Success! Database schema extended and seeded securely.")
+    print("Database finalized successfully. Schema supports unified occupant safety evaluation.")
 
 if __name__ == "__main__":
     build_extended_schema()
