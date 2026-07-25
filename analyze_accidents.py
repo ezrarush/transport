@@ -14,6 +14,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.formatting import Rule
+from openpyxl.styles.differential import DifferentialStyle
 
 DB_PATH = "transportation_accidents.db"
 OUTPUT_IMAGE = "transportation_safety_dashboard.png"
@@ -65,55 +67,78 @@ def main():
         df_rates['crash_rate_per_10k'] = (df_rates['crash_count'] / df_rates['daily_volume']) * 10000
         df_rates = df_rates.sort_values(by='crash_rate_per_10k', ascending=False)
 
-        # TASK C: Auto-Export to Styled Excel Spreadsheets
-        print(f"\n--- 4. Exporting Structured Spreadsheet -> '{OUTPUT_EXCEL}' ---")
+        # TASK C: Auto-Export to Styled Excel Spreadsheets with Conditional Formatting
+        print(f"\n--- 4. Exporting Spreadsheet with Rules -> '{OUTPUT_EXCEL}' ---")
         
-        # Open an Excel writer engine using pandas and openpyxl
         with pd.ExcelWriter(OUTPUT_EXCEL, engine='openpyxl') as writer:
-            # Send DataFrames to distinct workbook tabs
             df_crosstab.to_excel(writer, sheet_name='Environmental Crosstab', index=True)
             df_rates.to_excel(writer, sheet_name='Exposure Analysis', index=False)
             
-            # Pull workbook reference to apply advanced typography and grids
             workbook = writer.book
             
-            # Define stylistic properties
+            # Text & Header styling properties
             header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
             header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
             thin_border = Border(
-                left=Side(style='thin', color='D9D9D9'),
-                right=Side(style='thin', color='D9D9D9'),
-                top=Side(style='thin', color='D9D9D9'),
-                bottom=Side(style='thin', color='D9D9D9')
+                left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'),
+                top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9')
             )
             
-            # Iterate through each tab to auto-format column widths and alignments
+            # Formatted alert fill properties for high-risk cells
+            red_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+            red_font = Font(name="Arial", size=10, color='9C0006', bold=True)
+            
+            # Enforce core styles across all generated sheets
             for sheet_name in workbook.sheetnames:
                 ws = workbook[sheet_name]
-                ws.views.sheetView[0].showGridLines = True  # Enforce visible grid lines
+                if ws.views.sheetView:
+                    ws.views.sheetView[0].showGridLines = True
                 
-                # Format headers and apply thin border matrix borders across cells
+                # Apply header colors
                 for row in ws.iter_rows(min_row=1, max_row=1):
                     for cell in row:
                         cell.fill = header_fill
                         cell.font = header_font
                         cell.alignment = Alignment(horizontal="center", vertical="center")
                 
+                # Apply standard structural borders
                 for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
                     for cell in row:
                         cell.border = thin_border
-                        if type(cell.value) in [int, float]:
+                        if isinstance(cell.value, (int, float)):
                             cell.alignment = Alignment(horizontal="right")
+                            # Add clean number rounding format for floating rates
+                            if sheet_name == 'Exposure Analysis' and cell.column == 4:
+                                cell.number_format = '0.00'
                         else:
                             cell.alignment = Alignment(horizontal="left")
                 
-                # Dynamically fit column widths to cell text content lengths
+                # Auto-adjust column width sizing parameters
                 for col in ws.columns:
                     max_len = max(len(str(cell.value or '')) for cell in col)
                     col_letter = get_column_letter(col[0].column)
                     ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
 
-        print("Spreadsheet successfully compiled and saved to disk.")
+            # TASK D: Inject Conditional Formatting Rule onto the Exposure Analysis Tab
+            analysis_ws = workbook['Exposure Analysis']
+            max_row_analysis = analysis_ws.max_row
+            
+            # Wrap the font/fill inside an explicit DifferentialStyle object
+            dxf = DifferentialStyle(fill=red_fill, font=red_font)
+
+            # Assemble the precise OOXML rule structure that Excel natively accepts
+            high_risk_rule = Rule(
+                type="cellIs",
+                operator="greaterThan",
+                formula=['"5"'],
+                stopIfTrue=True,
+                dxf=dxf
+            )
+            
+            # Apply rule specifically to data rows within column D
+            analysis_ws.conditional_formatting.add(f'D2:D{max_row_analysis}', high_risk_rule)
+
+        print("Spreadsheet compiled successfully with dynamic high-risk color highlights.")
 
     except Exception as error:
         print(f"[RUNTIME PIPELINE ERROR]: Operation halted. Details: {error}", file=sys.stderr)
