@@ -110,6 +110,15 @@ def main():
         # Reorder KABCO column priority structure explicitly if available
         kabco_order = [c for c in ['K', 'A', 'B', 'C', 'O'] if c in df_demo_matrix.columns]
         df_demo_matrix = df_demo_matrix[kabco_order]
+
+        # Compute marginal totals directly inside pandas before Excel generation
+        # 1. Sum horizontally across columns (K, A, B, C, O) to create a 'Total' column
+        df_demo_matrix['Total'] = df_demo_matrix.sum(axis=1)
+
+        # 2. Sum vertically down rows (Age Bands) to create a 'Total' summary row
+        df_demo_matrix.loc['Total'] = df_demo_matrix.sum(axis=0)
+
+        print("\n--- Demographic Matrix with Automated Marginal Totals ---")
         print(df_demo_matrix)
 
         # TASK D: Pulling Injury Severity by Autonomy Classification
@@ -282,6 +291,16 @@ def main():
                             if sheet_name == 'Exposure Analysis' and cell.column == 4: cell.number_format = '0.00'
                         else:
                             cell.alignment = Alignment(horizontal="left")
+
+                        # Style properties for total summary fields
+                        total_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+                        total_font = Font(name="Arial", size=11, bold=True, color="000000")
+
+                        if sheet_name == 'Demographic Analysis':
+                            # Check if cell is in the bottom-most row or the right-most column
+                            if cell.row == ws.max_row or cell.column == ws.max_column:
+                                cell.fill = total_fill
+                                cell.font = total_font
 
                 for col in ws.columns:
                     max_len = max(len(str(cell.value or '')) for cell in col if cell.row >= header_row)
