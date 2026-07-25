@@ -14,6 +14,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+
+# Using openpyxl's high-level rule generator
 from openpyxl.formatting.rule import CellIsRule
 
 DB_PATH = "transportation_accidents.db"
@@ -62,6 +64,12 @@ def main():
         # TASK B: Calculating Exposure-Adjusted Accident Rates
         print("\n--- 3. Computing Exposure-Adjusted Rates ---")
         df_rates = df_raw.groupby('speed_zone')['crash_count'].sum().reset_index()
+        
+        # Enforce tracking on all known speed zones to ensure zero-crash zones are included
+        all_zones = pd.DataFrame({'speed_zone': list(VOLUME_INDEX_MAP.keys())})
+        df_rates = pd.merge(all_zones, df_rates, on='speed_zone', how='left').fillna(0)
+        df_rates['crash_count'] = df_rates['crash_count'].astype(int)
+        
         df_rates['daily_volume'] = df_rates['speed_zone'].map(VOLUME_INDEX_MAP).fillna(50000)
         df_rates['crash_rate_per_10k'] = (df_rates['crash_count'] / df_rates['daily_volume']) * 10000
         df_rates = df_rates.sort_values(by='crash_rate_per_10k', ascending=False)
@@ -82,10 +90,14 @@ def main():
                 left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'),
                 top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9')
             )
-
-            # Formatted alert fill properties for high-risk cells
-            cf_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
-            cf_font = Font(color='9C0006', bold=True)
+            
+            # High-Risk styling (Red)
+            red_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+            red_font = Font(color='9C0006', bold=True)
+            
+            # Safe-Zone styling (Green)
+            green_fill = PatternFill(start_color='C6EFCE', end_color='C6EFCE', fill_type='solid')
+            green_font = Font(color='006100', bold=True)
             
             # Enforce core styles across all generated sheets
             for sheet_name in workbook.sheetnames:
@@ -118,22 +130,31 @@ def main():
                     col_letter = get_column_letter(col[0].column)
                     ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
 
-            # TASK D: Inject Clean Native Conditional Formatting Rule
+            # TASK D: Inject Conditional Formatting Rules
             analysis_ws = workbook['Exposure Analysis']
             max_row_analysis = analysis_ws.max_row
             
+            # Rule 1: High-Risk Rule for values > 5.0 in Column D (crash_rate_per_10k)
             high_risk_rule = CellIsRule(
                 operator='greaterThan', 
                 formula=['5'], 
                 stopIfTrue=True, 
-                fill=cf_fill, 
-                font=cf_font
+                fill=red_fill, 
+                font=red_font
             )
-            
-            # Apply rule specifically to data rows within Column D (crash_rate_per_10k)
             analysis_ws.conditional_formatting.add(f'D2:D{max_row_analysis}', high_risk_rule)
 
-        print("Spreadsheet compiled successfully! Highlights will appear on values > 5.0.")
+            # Rule 2: Safe-Zone Rule for crash_count values == 0 in Column B (crash_count)
+            safe_zone_rule = CellIsRule(
+                operator='equal',
+                formula=['0'],
+                stopIfTrue=True,
+                fill=green_fill,
+                font=green_font
+            )
+            analysis_ws.conditional_formatting.add(f'B2:B{max_row_analysis}', safe_zone_rule)
+
+        print("Spreadsheet compiled successfully! Red highlights on high risk, Green on zero crashes.")
 
     except Exception as error:
         print(f"[RUNTIME PIPELINE ERROR]: Operation halted. Details: {error}", file=sys.stderr)
