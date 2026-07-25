@@ -75,7 +75,7 @@ def build_extended_schema():
         );
     """)
 
-    # Table F: NEW - Normalized People and Injury tracking table
+    # Table F: Normalized People and Injury tracking table
     cursor.execute("""
         CREATE TABLE people (
             person_id TEXT PRIMARY KEY,
@@ -91,9 +91,37 @@ def build_extended_schema():
     """)
 
     # =====================================================================
+    # STEP 2: CREATING THE STORED DEMOGRAPHIC ANALYSIS VIEW
+    # =====================================================================
+    print("--- 2. Compiling Stored SQL View: view_demographic_safety_summary ---")
+    cursor.execute("""
+        CREATE VIEW view_demographic_safety_summary AS
+        SELECT 
+            p.person_id,
+            p.role,
+            p.age,
+            CASE 
+                WHEN p.age < 18 THEN 'Under 18'
+                WHEN p.age BETWEEN 18 AND 64 THEN '18-64'
+                WHEN p.age >= 65 THEN '65+'
+                ELSE 'Unknown'
+            END as age_band,
+            p.gender,
+            p.injury_severity_kabco as injury_severity,
+            v.vehicle_type,
+            COALESCE(a.sae_name, 'Non-Motorist (No Vehicle)') as vehicle_autonomy_tier,
+            c.weather_condition,
+            c.speed_limit
+        FROM people p
+        LEFT JOIN vehicles v ON p.vehicle_id = v.vehicle_id
+        LEFT JOIN dim_autonomy_levels a ON v.autonomous_level = a.autonomy_level
+        LEFT JOIN crashes c ON p.crash_id = c.crash_id;
+    """)
+
+    # =====================================================================
     # SEED DATA GENERATION & INSERTION
     # =====================================================================
-    print("--- 2. Seeding Dimensions ---")
+    print("--- 3. Seeding Dimensions ---")
     
     autonomy_data = [
         (0, "No Driving Automation", "Manual driver controls all operations."),
@@ -114,7 +142,7 @@ def build_extended_schema():
     ]
     cursor.executemany("INSERT INTO dim_mechanical_failures VALUES (?, ?, ?);", failure_data)
     
-    print("--- 3. Seeding Incidents, Fleet Units, and Failure Bridges ---")
+    print("--- 4. Seeding Incidents, Fleet Units, and Failure Bridges ---")
     
     crashes = [
         ("CRASH_001", "2026-03-12 08:32:00", "Rain", 65, "Interstate"),
@@ -139,28 +167,27 @@ def build_extended_schema():
     ]
     cursor.executemany("INSERT INTO vehicle_failures_bridge VALUES (?, ?);", failures_bridge)
     
-    print("--- 4. Seeding Injury Matrix Metrics ---")
+    print("--- 5. Seeding Injury Matrix Metrics ---")
     
-    # Seeding people across our vehicle infrastructure types
     people_data = [
         # CRASH 001: Level 4 Autonomous Freight truck collides with standard vehicle
-        ("PER_001", "CRASH_001", "VEH_101", "Driver", 42, "M", "O"),      # Backup operator in truck uninjured
-        ("PER_002", "CRASH_001", "VEH_102", "Driver", 28, "F", "A"),      # Manual driver severely injured
-        ("PER_003", "CRASH_001", "VEH_102", "Occupant", 6, "M", "B"),    # Passenger child sustained minor injuries
+        ("PER_001", "CRASH_001", "VEH_101", "Driver", 42, "M", "O"),      # 18-64 Tier
+        ("PER_002", "CRASH_001", "VEH_102", "Driver", 28, "F", "A"),      # 18-64 Tier
+        ("PER_003", "CRASH_001", "VEH_102", "Occupant", 6, "M", "B"),    # Under 18 Tier
         
         # CRASH 002: Level 2 Transit bus sequence involving a pedestrian
-        ("PER_004", "CRASH_002", "VEH_201", "Driver", 55, "M", "O"),      # Bus driver safe
-        ("PER_005", "CRASH_002", "VEH_201", "Occupant", 19, "F", "C"),    # Bus commuter reported minor pain
-        ("PER_006", "CRASH_002", None, "Pedestrian", 34, "F", "K"),       # Pedestrian struck fatally due to mechanical steering loss
+        ("PER_004", "CRASH_002", "VEH_201", "Driver", 55, "M", "O"),      # 18-64 Tier
+        ("PER_005", "CRASH_002", "VEH_201", "Occupant", 19, "F", "C"),    # 18-64 Tier
+        ("PER_006", "CRASH_002", None, "Pedestrian", 34, "F", "K"),       # 18-64 Tier
         
         # CRASH 003: High-speed passenger car blowout
-        ("PER_007", "CRASH_003", "VEH_301", "Driver", 68, "M", "B")       # Driver sustained bruises
+        ("PER_007", "CRASH_003", "VEH_301", "Driver", 68, "M", "B")       # 65+ Tier
     ]
     cursor.executemany("INSERT INTO people VALUES (?, ?, ?, ?, ?, ?, ?);", people_data)
     
     conn.commit()
     conn.close()
-    print("Database finalized successfully. Schema supports unified occupant safety evaluation.")
+    print("Database finalized successfully! Stored view compiled and ready for querying.")
 
 if __name__ == "__main__":
     build_extended_schema()

@@ -93,5 +93,32 @@ ORDER BY v.autonomous_level ASC, headcount DESC;
    
    uv run extend_schema.py
    
+# Add a stored SQL view to group demographic crash data by age bands (e.g., under 18, 18-65, 65+)
 
+Here is your updated schema script. This version appends an automated Stored SQL View (view_demographic_safety_summary) directly into the SQLite database engine.
+The view uses a conditional CASE statement to bucket individual ages into standardized demographic tiers: 'Under 18', '18-64', and '65+'. It links records across the people, vehicles, and dim_autonomy_levels tables so you can track injury outcomes (KABCO) across different age brackets and vehicle technologies with a single, simple query.
+## Database Setup Script with Stored View (extend_schema.py)  
+
+## How to Query the New Stored View
+Because the demographic logic is stored inside the database view itself, you no longer have to write messy JOIN or CASE clauses in your application layers. You can select directly from the view as if it were a normal table.
+## Example A: View full demographic logs
+```sql
+SELECT * FROM view_demographic_safety_summary;
+```
+## Example B: Total injuries by age band and severity
+
+```sql
+SELECT 
+    age_band, 
+    injury_severity, 
+    COUNT(person_id) as total_count
+FROM view_demographic_safety_summary
+GROUP BY age_band, injury_severity
+ORDER BY age_band ASC, total_count DESC;
+```
+
+## Execution Steps
+
+   
+   uv run extend_schema.py
    
