@@ -14,8 +14,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
-from openpyxl.formatting import Rule
-from openpyxl.styles.differential import DifferentialStyle
+from openpyxl.formatting.rule import CellIsRule
 
 DB_PATH = "transportation_accidents.db"
 OUTPUT_IMAGE = "transportation_safety_dashboard.png"
@@ -67,7 +66,7 @@ def main():
         df_rates['crash_rate_per_10k'] = (df_rates['crash_count'] / df_rates['daily_volume']) * 10000
         df_rates = df_rates.sort_values(by='crash_rate_per_10k', ascending=False)
 
-        # TASK C: Auto-Export to Styled Excel Spreadsheets with Conditional Formatting
+        # TASK C: Auto-Export to Styled Excel Spreadsheets
         print(f"\n--- 4. Exporting Spreadsheet with Rules -> '{OUTPUT_EXCEL}' ---")
         
         with pd.ExcelWriter(OUTPUT_EXCEL, engine='openpyxl') as writer:
@@ -76,21 +75,22 @@ def main():
             
             workbook = writer.book
             
-            # Text & Header styling properties
+            # Base table typography elements
             header_fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
             header_font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
             thin_border = Border(
                 left=Side(style='thin', color='D9D9D9'), right=Side(style='thin', color='D9D9D9'),
                 top=Side(style='thin', color='D9D9D9'), bottom=Side(style='thin', color='D9D9D9')
             )
-            
+
             # Formatted alert fill properties for high-risk cells
-            red_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
-            red_font = Font(name="Arial", size=10, color='9C0006', bold=True)
+            cf_fill = PatternFill(start_color='FFC7CE', end_color='FFC7CE', fill_type='solid')
+            cf_font = Font(color='9C0006', bold=True)
             
             # Enforce core styles across all generated sheets
             for sheet_name in workbook.sheetnames:
                 ws = workbook[sheet_name]
+                
                 if ws.views.sheetView:
                     ws.views.sheetView[0].showGridLines = True
                 
@@ -107,7 +107,6 @@ def main():
                         cell.border = thin_border
                         if isinstance(cell.value, (int, float)):
                             cell.alignment = Alignment(horizontal="right")
-                            # Add clean number rounding format for floating rates
                             if sheet_name == 'Exposure Analysis' and cell.column == 4:
                                 cell.number_format = '0.00'
                         else:
@@ -119,26 +118,22 @@ def main():
                     col_letter = get_column_letter(col[0].column)
                     ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
 
-            # TASK D: Inject Conditional Formatting Rule onto the Exposure Analysis Tab
+            # TASK D: Inject Clean Native Conditional Formatting Rule
             analysis_ws = workbook['Exposure Analysis']
             max_row_analysis = analysis_ws.max_row
             
-            # Wrap the font/fill inside an explicit DifferentialStyle object
-            dxf = DifferentialStyle(fill=red_fill, font=red_font)
-
-            # Assemble the precise OOXML rule structure that Excel natively accepts
-            high_risk_rule = Rule(
-                type="cellIs",
-                operator="greaterThan",
-                formula=['"5"'],
-                stopIfTrue=True,
-                dxf=dxf
+            high_risk_rule = CellIsRule(
+                operator='greaterThan', 
+                formula=['5'], 
+                stopIfTrue=True, 
+                fill=cf_fill, 
+                font=cf_font
             )
             
-            # Apply rule specifically to data rows within column D
+            # Apply rule specifically to data rows within Column D (crash_rate_per_10k)
             analysis_ws.conditional_formatting.add(f'D2:D{max_row_analysis}', high_risk_rule)
 
-        print("Spreadsheet compiled successfully with dynamic high-risk color highlights.")
+        print("Spreadsheet compiled successfully! Highlights will appear on values > 5.0.")
 
     except Exception as error:
         print(f"[RUNTIME PIPELINE ERROR]: Operation halted. Details: {error}", file=sys.stderr)
