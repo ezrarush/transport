@@ -112,40 +112,85 @@ def main():
         df_demo_matrix = df_demo_matrix[kabco_order]
         print(df_demo_matrix)
 
+        # TASK D: Pulling Injury Severity by Autonomy Classification
+        print("\n--- 5. Querying Injury Severities by Autonomy Tier ---")
+        query_autonomy_injury = """
+            SELECT vehicle_autonomy_tier, injury_severity, COUNT(person_id) as headcount
+            FROM view_demographic_safety_summary
+            GROUP BY vehicle_autonomy_tier, injury_severity;
+        """
+        df_av_injury = pd.read_sql_query(query_autonomy_injury, conn)
+        df_av_matrix = pd.crosstab(
+            index=df_av_injury['vehicle_autonomy_tier'],
+            columns=df_av_injury['injury_severity'],
+            values=df_av_injury['headcount'],
+            aggfunc='sum'
+        ).fillna(0).astype(int)
+
+        # TASK E: Aggregating Autonomous Crashes vs Manual Crashes
+        print("\n--- 6. Computing Autonomous vs Manual Crash Proportions ---")
+        query_crash_modes = """
+            SELECT 
+                CASE 
+                    WHEN vehicle_autonomy_tier IN ('Non-Motorist (No Vehicle)', 'No Driving Automation') THEN 'Manual / Non-Motorist'
+                    ELSE 'Autonomous Driving Mode (SAE L1-L5)'
+                END as driving_mode,
+                COUNT(DISTINCT person_id) as passenger_volume
+            FROM view_demographic_safety_summary
+            GROUP BY driving_mode;
+        """
+        df_crash_modes = pd.read_sql_query(query_crash_modes, conn)
+
         # =====================================================================
         # PHASE 2: MATPLOTLIB GRAPHICS COMPILATION
         # =====================================================================
-        print(f"\n--- 5. Rendering Analytics Panels -> '{OUTPUT_IMAGE}' ---")
-        fig, axes = plt.subplots(1, 2, figsize=(15, 6))
-        fig.suptitle('Advanced Transportation Safety Analytics & Risk Exposure', fontsize=14, fontweight='bold')
+        print(f"\n--- 7. Rendering Extended 4-Panel Analytics Canvas -> '{OUTPUT_IMAGE}' ---")
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12))
+        fig.suptitle('Comprehensive Transportation Safety & Autonomy Systems Dashboard', fontsize=16, fontweight='bold', y=0.96)
 
-        # Subplot 1: Stacked Bar Chart of Environmental Cross-tabulation
-        df_crosstab.plot(kind='bar', stacked=True, ax=axes[0], colormap='viridis', edgecolor='black', alpha=0.85)
-        axes[0].set_title('Crash Volume: Weather Condition vs Speed Zone', fontsize=11, fontweight='bold', pad=10)
-        axes[0].set_ylabel('Total Crash Count', fontsize=10)
-        axes[0].set_xlabel('Weather Condition', fontsize=10)
-        axes[0].grid(axis='y', linestyle='--', alpha=0.5)
-        axes[0].tick_params(axis='x', rotation=0)
-        axes[0].legend(title='Speed Limit')
+        # Panel 1 [Top-Left]: Stacked Bar Chart of Environmental Cross-tabulation
+        df_crosstab.plot(kind='bar', stacked=True, ax=axes[0, 0], colormap='viridis', edgecolor='black', alpha=0.85)
+        axes[0, 0].set_title('Crash Volume: Weather Condition vs Speed Zone', fontsize=11, fontweight='bold', pad=10)
+        axes[0, 0].set_ylabel('Total Crash Count', fontsize=10)
+        axes[0, 0].set_xlabel('Weather Condition', fontsize=10)
+        axes[0, 0].grid(axis='y', linestyle='--', alpha=0.5)
+        axes[0, 0].tick_params(axis='x', rotation=0)
+        axes[0, 0].legend(title='Speed Limit')
 
-        # Subplot 2: Exposure-Adjusted Crash Rates Bar Chart
-        bars = axes[1].bar(df_rates['speed_zone'], df_rates['crash_rate_per_10k'], color='#c62828', edgecolor='black', alpha=0.8)
-        axes[1].set_title('Exposure-Adjusted Risk Rate (Per 10,000 Vehicles)', fontsize=11, fontweight='bold', pad=10)
-        axes[1].set_ylabel('Adjusted Crash Rate Index', fontsize=10)
-        axes[1].set_xlabel('Speed Limit Zone', fontsize=10)
-        axes[1].grid(axis='y', linestyle='--', alpha=0.5)
-
-        # Append exact data values above the chart bars
+        # Panel 2 [Top-Right]: Exposure-Adjusted Crash Rates Bar Chart
+        bars = axes[0, 1].bar(df_rates['speed_zone'], df_rates['crash_rate_per_10k'], color='#c62828', edgecolor='black', alpha=0.8)
+        axes[0, 1].set_title('Exposure-Adjusted Risk Rate (Per 10,000 Vehicles)', fontsize=11, fontweight='bold', pad=10)
+        axes[0, 1].set_ylabel('Adjusted Crash Rate Index', fontsize=10)
+        axes[0, 1].grid(axis='y', linestyle='--', alpha=0.5)
         for bar in bars:
             height = bar.get_height()
-            axes[1].annotate(f'{height:.2f}',
-                        xy=(bar.get_x() + bar.get_width() / 2, height),
-                        xytext=(0, 3), textcoords="offset points",
-                        ha='center', va='bottom', fontsize=9, fontweight='bold')
+            axes[0, 1].annotate(f'{height:.2f}', xy=(bar.get_x() + bar.get_width() / 2, height),
+                                xytext=(0, 3), textcoords="offset points", ha='center', va='bottom', fontsize=9, fontweight='bold')
 
-        plt.tight_layout()
+        # Panel 3 [Bottom-Left]: NEW - Injury Severity by Autonomy Classification
+        df_av_matrix.plot(kind='bar', stacked=False, ax=axes[1, 0], colormap='coolwarm', edgecolor='black', alpha=0.85)
+        axes[1, 0].set_title('Injury Severities (KABCO) by Vehicle Autonomy Tier', fontsize=11, fontweight='bold', pad=10)
+        axes[1, 0].set_ylabel('Count of Individuals', fontsize=10)
+        axes[1, 0].set_xlabel('Autonomy System Tier', fontsize=10)
+        axes[1, 0].grid(axis='y', linestyle='--', alpha=0.5)
+        axes[1, 0].tick_params(axis='x', rotation=15)
+        axes[1, 0].legend(title='KABCO Scale')
+
+        # Panel 4 [Bottom-Right]: NEW - Autonomous vs Manual Crash Modes Distribution
+        axes[1, 1].pie(
+            df_crash_modes['passenger_volume'], 
+            labels=df_crash_modes['driving_mode'], 
+            autopct='%1.1f%%', 
+            startangle=140, 
+            colors=['#0288d1', '#7b1fa2'],
+            wedgeprops={'edgecolor': 'black', 'linewidth': 1, 'antialiased': True}
+        )
+        axes[1, 1].set_title('Crash Distribution Share: Autonomous vs Manual Systems', fontsize=11, fontweight='bold', pad=10)
+
+        plt.tight_layout(rect=[0, 0, 1, 0.93])
         plt.savefig(OUTPUT_IMAGE, dpi=300)
-        print("Dashboard image generated and exported to disk successfully.")
+        print("Extended 4-panel visual dashboard exported cleanly.")
+
 
         # =====================================================================
         # PHASE 3: EXCEL WORKBOOK AUTO-GEN & DESIGN STYLING
