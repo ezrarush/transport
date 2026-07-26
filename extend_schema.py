@@ -23,14 +23,25 @@ def build_extended_schema():
     # Enforce strict cascading foreign key constraints dynamically inside SQLite
     cursor.execute("PRAGMA foreign_keys = ON;")
     
-    # Table A: Core Crashes Element 
+    # NEW Table: Weather Dimensions Catalog to Standardize Environmental Conditions
+    cursor.execute("""
+        CREATE TABLE dim_weather (
+            weather_code TEXT PRIMARY KEY,
+            weather_name TEXT NOT NULL,
+            severity_index INTEGER CHECK(severity_index BETWEEN 1 AND 5),
+            description TEXT
+        );
+    """)
+    
+    # Updated Table: Core Crashes (normalized to reference dim_weather via weather_code)
     cursor.execute("""
         CREATE TABLE crashes (
             crash_id TEXT PRIMARY KEY,
             timestamp TEXT NOT NULL,
-            weather_condition TEXT NOT NULL,
+            weather_code TEXT NOT NULL,
             speed_limit INTEGER NOT NULL,
-            roadway_type TEXT
+            roadway_type TEXT,
+            FOREIGN KEY (weather_code) REFERENCES dim_weather(weather_code)
         );
     """)
     
@@ -91,8 +102,9 @@ def build_extended_schema():
     """)
 
     # =====================================================================
-    # STEP 2: CREATING THE STORED DEMOGRAPHIC ANALYSIS VIEW
+    # STEP 2: RECOMPILING THE STORED DEMOGRAPHIC ANALYSIS VIEW
     # =====================================================================
+    # View query updated to pull descriptive 'weather_name' from our new dim_weather table
     print("--- 2. Compiling Stored SQL View: view_demographic_safety_summary ---")
     cursor.execute("""
         CREATE VIEW view_demographic_safety_summary AS
@@ -110,19 +122,31 @@ def build_extended_schema():
             p.injury_severity_kabco as injury_severity,
             v.vehicle_type,
             COALESCE(a.sae_name, 'Non-Motorist (No Vehicle)') as vehicle_autonomy_tier,
-            c.weather_condition,
+            w.weather_name as weather_condition,
             c.speed_limit
         FROM people p
         LEFT JOIN vehicles v ON p.vehicle_id = v.vehicle_id
         LEFT JOIN dim_autonomy_levels a ON v.autonomous_level = a.autonomy_level
-        LEFT JOIN crashes c ON p.crash_id = c.crash_id;
+        LEFT JOIN crashes c ON p.crash_id = c.crash_id
+        LEFT JOIN dim_weather w ON c.weather_code = w.weather_code;
     """)
 
     # =====================================================================
     # SEED DATA GENERATION & INSERTION
     # =====================================================================
-    print("--- 3. Seeding Dimensions ---")
+    print("--- 3. Seeding Lookup Dimension Tables ---")
     
+    # Seed our new master weather lookup codes
+    weather_data = [
+        ("CLR", "Clear", 1, "Optimal atmospheric visibility and road conditions."),
+        ("RAI", "Rain", 3, "Precipitation resulting in slick roads and impaired visibility."),
+        ("SNO", "Snow", 4, "Slick accumulated snow or ice pack layers restricting grip."),
+        ("FOG", "Fog", 4, "Dense airborne moisture dropping visibility parameters below 0.25 miles."),
+        ("SST", "Severe Storm", 5, "High-velocity wind gusts, hail, tornadoes, or blinding downpours.")
+    ]
+    cursor.executemany("INSERT INTO dim_weather VALUES (?, ?, ?, ?);", weather_data)
+
+    # Seed Autonomy Categories
     autonomy_data = [
         (0, "No Driving Automation", "Manual driver controls all operations."),
         (1, "Driver Assistance", "Single automated system helper present."),
@@ -133,6 +157,7 @@ def build_extended_schema():
     ]
     cursor.executemany("INSERT INTO dim_autonomy_levels VALUES (?, ?, ?);", autonomy_data)
     
+    # Seed Mechanical Failures Category Records
     failure_data = [
         ("BRK_FAIL", "Braking System", "Complete hydraulic fluid loss or caliper seizure."),
         ("TYR_BLOW", "Suspension & Tires", "Sudden catastrophic structural tire failure."),
@@ -142,12 +167,13 @@ def build_extended_schema():
     ]
     cursor.executemany("INSERT INTO dim_mechanical_failures VALUES (?, ?, ?);", failure_data)
     
-    print("--- 4. Seeding Incidents, Fleet Units, and Failure Bridges ---")
+    print("--- 4. Seeding Incidents and Failure Bridges ---")
     
+    # Seeding crashes utilizing our new standardized weather foreign keys
     crashes = [
-        ("CRASH_001", "2026-03-12 08:32:00", "Rain", 65, "Interstate"),
-        ("CRASH_002", "2026-05-19 14:15:00", "Clear", 35, "Urban Arterial"),
-        ("CRASH_003", "2026-07-04 22:45:00", "Snow", 45, "Rural Highway")
+        ("CRASH_001", "2026-03-12 08:32:00", "RAI", 65, "Interstate"),
+        ("CRASH_002", "2026-05-19 14:15:00", "CLR", 35, "Urban Arterial"),
+        ("CRASH_003", "2026-07-04 22:45:00", "SNO", 45, "Rural Highway")
     ]
     cursor.executemany("INSERT INTO crashes VALUES (?, ?, ?, ?, ?);", crashes)
     
@@ -170,24 +196,19 @@ def build_extended_schema():
     print("--- 5. Seeding Injury Matrix Metrics ---")
     
     people_data = [
-        # CRASH 001: Level 4 Autonomous Freight truck collides with standard vehicle
-        ("PER_001", "CRASH_001", "VEH_101", "Driver", 42, "M", "O"),      # 18-64 Tier
-        ("PER_002", "CRASH_001", "VEH_102", "Driver", 28, "F", "A"),      # 18-64 Tier
-        ("PER_003", "CRASH_001", "VEH_102", "Occupant", 6, "M", "B"),    # Under 18 Tier
-        
-        # CRASH 002: Level 2 Transit bus sequence involving a pedestrian
-        ("PER_004", "CRASH_002", "VEH_201", "Driver", 55, "M", "O"),      # 18-64 Tier
-        ("PER_005", "CRASH_002", "VEH_201", "Occupant", 19, "F", "C"),    # 18-64 Tier
-        ("PER_006", "CRASH_002", None, "Pedestrian", 34, "F", "K"),       # 18-64 Tier
-        
-        # CRASH 003: High-speed passenger car blowout
-        ("PER_007", "CRASH_003", "VEH_301", "Driver", 68, "M", "B")       # 65+ Tier
+        ("PER_001", "CRASH_001", "VEH_101", "Driver", 42, "M", "O"),      
+        ("PER_002", "CRASH_001", "VEH_102", "Driver", 28, "F", "A"),      
+        ("PER_003", "CRASH_001", "VEH_102", "Occupant", 6, "M", "B"),    
+        ("PER_004", "CRASH_002", "VEH_201", "Driver", 55, "M", "O"),      
+        ("PER_005", "CRASH_002", "VEH_201", "Occupant", 19, "F", "C"),    
+        ("PER_006", "CRASH_002", None, "Pedestrian", 34, "F", "K"),       
+        ("PER_007", "CRASH_003", "VEH_301", "Driver", 68, "M", "B")       
     ]
     cursor.executemany("INSERT INTO people VALUES (?, ?, ?, ?, ?, ?, ?);", people_data)
     
     conn.commit()
     conn.close()
-    print("Database finalized successfully! Stored view compiled and ready for querying.")
+    print("Database finalized successfully! dim_weather integration complete.")
 
 if __name__ == "__main__":
     build_extended_schema()

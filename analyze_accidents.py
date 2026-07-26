@@ -56,10 +56,11 @@ def main():
         # =====================================================================
         print("--- 1. Pulling Raw Crash Data Metrics ---")
         query_raw = """
-            SELECT weather_condition, speed_limit, COUNT(crash_id) as crash_count
-            FROM crashes
-            WHERE weather_condition IS NOT NULL AND speed_limit IS NOT NULL
-            GROUP BY weather_condition, speed_limit;
+            SELECT w.weather_name as weather_condition, c.speed_limit, COUNT(c.crash_id) as crash_count
+            FROM crashes c
+            JOIN dim_weather w ON c.weather_code = w.weather_code
+            WHERE c.speed_limit IS NOT NULL
+            GROUP BY w.weather_name, c.speed_limit;
         """
         df_raw = pd.read_sql_query(query_raw, conn)
         df_raw['speed_zone'] = df_raw['speed_limit'].astype(str) + " mph"
